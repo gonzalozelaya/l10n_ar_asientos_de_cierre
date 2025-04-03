@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+   <record id="view_final_generator_form" model="ir.ui.view">
+        <field name="name">final.generator.form</field>
+        <field name="model">final.generator</field>
+        <field name="arch" type="xml">
+            <form string="Generador de Asiento Final">
+                <header>
+                    <button name="action_create_move" string="Generar Líneas" type="object" class="oe_highlight" invisible="patrimonial or refundicion"/>
+                    <button name="generar_asientos" string="Generar Asientos" type="object" invisible="(patrimonial or refundicion) and (patrimonial_line_ids and refundicion_line_ids)"/>
+
+                    
+                    <!--<field name="patrimonial" widget="statusbar" statusbar_visible="draft,posted" options="{'clickable': True}"/>
+                    <field name="refundicion" widget="statusbar" statusbar_visible="draft,posted" options="{'clickable': True}"/>-->
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="year" readonly="patrimonial or refundicion"/>
+                            <field name="date"/>
+                            <field name="patrimonial"/>
+                            <field name="refundicion"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="Patrimonial (Cuentas 1,2,3)">
+                            <field name="patrimonial_line_ids">
+                                <tree editable="bottom">
+                                    <field name="account_id"/>
+                                    <field name="debit"/>
+                                    <field name="credit"/>
+                                    <field name="balance"/>
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Refundición (Cuentas 4,5)">
+                            <field name="refundicion_line_ids">
+                                <tree editable="bottom">
+                                    <field name="account_id"/>
+                                    <field name="debit"/>
+                                    <field name="credit"/>
+                                    <field name="balance"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_final_generator_tree" model="ir.ui.view">
+        <field name="name">final.generator.tree</field>
+        <field name="model">final.generator</field>
+        <field name="arch" type="xml">
+            <tree string="Generadores de Asiento Final">
+                <field name="year"/>
+                <field name="date"/>
+                <field name="patrimonial" />
+                <field name="refundicion" />
+            </tree>
+        </field>
+    </record>
+    
+    <record id="action_account_balance_transfer_wizard" model="ir.actions.act_window">
+        <field name="name">Asientos de cierre</field>
+        <field name="res_model">final.generator</field>
+        <field name="view_mode">tree,form</field>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem id="menu_account_balance_transfer_wizard" name="Asiento de cierre"
+              action="action_account_balance_transfer_wizard" parent="account.menu_finance_entries"/>
+</odoo>

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="report_final_document">
+           <t t-call="__export__.ir_ui_view_4512_c4bf8e95">
+
+            <div class="row">
+                        <div class="col-6">
+                            <h4>Debe</h4>
+                        </div>
+                        <div class="col-6">
+                            <h4>Haber</h4>
+                        </div>
+            </div>
+                
+            <!-- Body -->
+            <t t-set="index" t-value="0"/>
+            <t t-foreach="docs" t-as="o">
+                <t t-set="index" t-value="index + 1"/>
+                <div class="container mt-0">
+                    <div class="row">
+                        <div class="col-6">
+                            <table class="table unified-table">
+                                <thead style="background-color:#e3e3e4 !important;">
+                                    <tr>
+                                        <small><th colspan="1" t-esc="str(index) +'-'+o.name" class="text-start text-truncate" style="max-width: 100px !important;font-size:14px !important;">Asiento</th></small>
+                                        <small><th colspan="1" t-field="o.date" class="text-end text-truncate" style="max-width: 100px !important;font-size:14px !important;">Asiento</th></small>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-set="total_debit" t-value="0"/>
+                                    <t t-foreach="o.line_ids" t-as="line">
+                                        <t t-if="line.debit &gt; 0">
+                                            <t t-set="total_debit" t-value="total_debit + line.debit"/>
+                                            <tr>
+                                                <td style="background-color: transparent !important; color: inherit !important;">
+                                                     <small>(<span t-esc="line.account_id.code"/>)</small>
+                                                    <small><strong><span t-esc="line.account_id.name"/></strong></small>
+                                                   
+                                                </td>
+                                                <td class="text-end" style="background-color: transparent !important; color: inherit !important;">
+                                                    <!--<span t-esc="format_amount(line.debit, line.company_currency_id)"/>-->
+                                                    <small><strong><span t-field="line.debit"/></strong></small>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </t>
+                                   <!-- <tr>
+                                        <td><strong>Total Débito</strong></td>
+                                        <td class="text-end">
+    
+                                            <span t-esc="total_debit" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'/>
+                                            
+                                        </td>
+                                    </tr>-->
+                                </tbody>
+                            </table>
+                        </div>
+    
+                        <!-- Right column for credit entries -->
+                        <div class="col-6">
+                            <table class="table">
+                                <thead style="background-color:#e3e3e4 !important;">
+                                    <tr>
+                                        <small><th colspan="2" t-esc="o.ref" class="text-start text-truncate" style="max-width: 100px !important;font-size:14px !important;">
+                                            -
+                                        </th></small>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-set="total_credit" t-value="0"/>
+                                    <t t-foreach="o.line_ids" t-as="line">
+                                        <t t-if="line.credit &gt; 0">
+                                            <t t-set="total_credit" t-value="total_credit + line.credit"/>
+                                            <tr>
+                                                <td style="background-color: transparent !important; color: inherit !important;">
+                                                    <small>(<span t-esc="line.account_id.code"/>)</small>
+                                                    <small><strong><span t-esc="line.account_id.name"/></strong></small>
+                                                    
+                                                </td>
+                                                <td class="text-end" style="background-color: transparent !important; color: inherit !important;">
+                                                    <!--<span t-esc="format_amount(line.credit, line.company_currency_id)"/>-->
+                                                    <small><strong><span t-field="line.credit"/></strong></small>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </t>
+                                   <!-- <tr>
+                                        <td><strong>Total Crédito</strong></td>
+                                        <td class="text-end">
+                                           
+                                            <span t-esc="total_credit" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'/>
+                                            
+                                        </td>
+                                    </tr>-->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </t>
+            <!--Body -->
+             
+         </t>
+    </template>
+
+    <template id="report_final">
+        <t t-call="web.html_container">
+            <t t-call="tax_custom_reports.report_final_document" t-t-set="docs" t-value="docs"/>
+        </t>
+    </template>
+
+    <!-- Acción para generar el reporte -->
+    <record id="action_report_reporte" model="ir.actions.report">
+        <field name="name">Reporte final</field>
+        <field name="model">account.move</field>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+        <field name="report_type">qweb-pdf</field>
+        <field name="print_report_name">'Reporte final'</field>
+        <field name="report_name">tax_custom_reports.report_final</field>
+        <field name="report_file">tax_custom_reports.report_final</field>
+    </record>
+    
+
+</odoo>
