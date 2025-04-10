@@ -1,7 +1,9 @@
 from odoo import models, fields, api
-from odoo.exceptions import ValidationError
+from odoo.exceptions import ValidationError,UserError
 import datetime
+import logging
 
+_logger = logging.getLogger(__name__)
 class AsientoFinal(models.Model):
     _name = 'final.generator'
 
@@ -56,7 +58,7 @@ class AsientoFinal(models.Model):
         domain=[('type', '=', 'refundicion')]
     )
     total_patrimonial = fields.Monetary('Total Patrimonial')
-    total_refundicion = fields.Monetary('Total Refundición')
+    total_refundicion = fields.Monetary('Resultado Refundición',readonly=True)
     
     @api.depends('year')
     def _compute_date(self):
@@ -87,7 +89,7 @@ class AsientoFinal(models.Model):
         total_credit = 0.0
     
         for account in accounts:
-            balance = self._get_balance(account)
+            balance = self.get_yearly_balance(account)
             if balance:
                 first_digit = account.code[0]
                 line_type = False
@@ -117,15 +119,23 @@ class AsientoFinal(models.Model):
         # Crear todas las líneas
         self.write({'line_ids': line_vals})
 
-    def _get_balance(self, account):
-        """ Obtiene el saldo de la cuenta hasta la fecha indicada, solo de asientos publicados """
+    def get_yearly_balance(self, account):
+        """Obtiene el saldo de la cuenta para un año específico"""
         self.ensure_one()
+        
+        # Definir fechas: desde el primer día del año hasta el último día del año
+        date_start = f'{self.year}-01-01'
+        date_end = self.date  # o podrías usar f'{year}-12-31' si quieres todo el año
+        
         query = """
             SELECT SUM(debit - credit) FROM account_move_line aml
             JOIN account_move am ON aml.move_id = am.id
-            WHERE aml.account_id = %s AND aml.date <= %s AND am.state = 'posted'
+            WHERE aml.account_id = %s 
+              AND aml.date >= %s 
+              AND aml.date <= %s 
+              AND am.state = 'posted'
         """
-        self.env.cr.execute(query, (account.id, self.date))
+        self.env.cr.execute(query, (account.id, date_start, date_end))
         result = self.env.cr.fetchone()
         return result[0] if result and result[0] else 0.0
 
@@ -146,7 +156,7 @@ class AsientoFinal(models.Model):
         
         # Obtener la cuenta de contrapartida (ajusta esto según tu necesidad)
         # Por ejemplo, podrías usar una cuenta configurable o una específica
-        journal = self.env['account.journal'].browse(39)
+        journal = self.env['account.journal'].browse(38)
         cuenta_contrapartida = self.env['account.account'].search([
             ('code', '=', '3.3.1.01.010'),  # Cambia por el código de tu cuenta de contrapartida
             ('company_id', '=', self.company_id.id)
@@ -154,49 +164,7 @@ class AsientoFinal(models.Model):
         
         if not cuenta_contrapartida:
             raise ValidationError("No se encontró la cuenta de contrapartida configurada.")
-        
-        # Crear asiento patrimonial
-        if self.patrimonial_line_ids:
-            lineas_patrimonial = []
-            total_debito = 0
-            total_credito = 0
-            
-            for linea in self.patrimonial_line_ids:
-                lineas_patrimonial.append((0, 0, {
-                    'account_id': linea.account_id.id,
-                    'name': f"Cierre patrimonial {self.year}",
-                    'debit': linea.debit,
-                    'credit': linea.credit,
-                }))
-                total_debito += linea.debit
-                total_credito += linea.credit
-            
-            # Agregar línea de contrapartida
-            if total_debito > total_credito:
-                lineas_patrimonial.append((0, 0, {
-                    'account_id': cuenta_contrapartida.id,
-                    'name': f"Contrapartida patrimonial {self.year}",
-                    'credit': total_debito - total_credito,
-                }))
-            elif total_credito > total_debito:
-                lineas_patrimonial.append((0, 0, {
-                    'account_id': cuenta_contrapartida.id,
-                    'name': f"Contrapartida patrimonial {self.year}",
-                    'debit': total_credito - total_debito,
-                }))
-            
-            asiento_patrimonial = self.env['account.move'].create({
-                'move_type': 'entry',
-                'date': self.date,
-                'ref': f"Cierre Patrimonial {self.year}",
-                'journal_id': journal.id,
-                'line_ids': lineas_patrimonial,
-                'company_id': self.company_id.id,
-            })
-            asiento_patrimonial.action_post()
-            self.patrimonial = asiento_patrimonial
-        
-        # Crear asiento de refundición
+         # Crear asiento de refundición
         if self.refundicion_line_ids:
             lineas_refundicion = []
             total_debito = 0
@@ -239,9 +207,8 @@ class AsientoFinal(models.Model):
             })
             asiento_refundicion.action_post()
             self.refundicion = asiento_refundicion
-        
-        # Actualizar totales
-        self.total_patrimonial = sum(self.patrimonial_line_ids.mapped('balance'))
+        _logger.info("Terminado refundicion")
+       
         self.total_refundicion = sum(self.refundicion_line_ids.mapped('balance'))
         
         return {
@@ -254,8 +221,55 @@ class AsientoFinal(models.Model):
             }
         }
 
+    def generar_patrimonial(self):
+        self.verify_transactions()
+        if self.patrimonial:
+            self.patrimonial.button_draft()
+            self.patrimonial.unlink()
+        journal = self.env['account.journal'].browse(38)
+        # Crear asiento patrimonial
+        if self.patrimonial_line_ids:
+            lineas_patrimonial = []
+            total_debito = 0
+            total_credito = 0
+            
+            for linea in self.patrimonial_line_ids:
+                lineas_patrimonial.append((0, 0, {
+                    'account_id': linea.account_id.id,
+                    'name': f"Cierre patrimonial {self.year}",
+                    'debit': linea.debit,
+                    'credit': linea.credit,
+                }))
+                total_debito += linea.debit
+                total_credito += linea.credit
+                        
+            asiento_patrimonial = self.env['account.move'].create({
+                'move_type': 'entry',
+                'date': self.date,
+                'ref': f"Cierre Patrimonial {self.year}",
+                'journal_id': journal.id,
+                'line_ids': lineas_patrimonial,
+                'company_id': self.company_id.id,
+            })
+            asiento_patrimonial.action_post()
+            self.patrimonial = asiento_patrimonial
+        return
 
 
+    def verify_transactions(self):
+        """Busca todas las cuentas con el group_id específico"""
+        self.ensure_one()
+        
+        # Buscar cuentas que tengan el group_id [58, "6 Cuentas Puentes"]
+        accounts = self.env['account.account'].search([
+            ('group_id', 'in', [58])  # Busca por el ID 58 (el nombre "6 Cuentas Puentes" es solo visual)
+        ])
+        for account in accounts:
+            balance = self.get_yearly_balance(account)
+            if balance != 0:
+                raise UserError(f"Se encontró un balance no saldado en la cuenta {account.name}({account.code})")
+        return 
+        
 class LineasDeAsiento(models.Model):
     _name = 'final.generator.line'
     
@@ -267,9 +281,9 @@ class LineasDeAsiento(models.Model):
         help="Moneda de la compañía"
     )
     account_id = fields.Many2one('account.account',string='Cuenta', ondelete='set null',readonly=True)
-    debit = fields.Monetary('Débito', currency_field='company_currency_id')
-    credit = fields.Monetary('Crédito', currency_field='company_currency_id')
-    balance = fields.Monetary('Balance', currency_field='company_currency_id')
+    debit = fields.Float('Débito')
+    credit = fields.Float('Crédito')
+    balance = fields.Float('Balance')
     type = fields.Selection([('refundicion','Refundición'),('patrimonial','Patrimonial')])
     final_id = fields.Many2one('final.generator',string='Asiento Final')
     

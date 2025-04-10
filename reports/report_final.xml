@@ -1,7 +1,119 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <template id="custom_standard_layout">
+         <style>
+        @page {
+            size: A4; /* Asegúrate de que el tamaño del papel sea correcto */
+            margin: 10mm; /* Ajusta los márgenes según sea necesario */
+        }
+        .container {
+            width: 100%; /* Ajusta al 100% del ancho disponible */
+            box-sizing: border-box; /* Incluye el padding y border en el ancho total */
+            padding: 0 10mm; /* Añade un padding a los lados para evitar el corte */
+        }
+        </style>
+         <div class="container">
+            <!-- Encabezado del Informe -->
+            <div t-attf-class="header o_company_#{company.id}_layout" t-att-style="report_header_style">
+                <div class="row">
+                    <div class="col-3 mb4">
+                        <img t-if="company.logo" t-att-src="image_data_uri(company.logo)" style="max-height: 35px;" alt="Logo"/>
+                    </div>
+                    <div class="col-9 text-end" style="margin-top:18px;">LIBRO DIARIO GENERAL</div>
+                    
+
+                    <!--<div class="col-9 text-end" style="margin-top:18px;" t-if="company.report_header" t-field="company.report_header" name="moto">Company tagline</div>-->
+                </div>
+                <div t-if="company.logo or company.report_header" class="row zero_min_height">
+                    <div class="col-12">
+                        <div style="border-bottom: 1px solid black;"/>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6" name="company_address">
+                        <ul class="list-unstyled" name="company_address_list">
+                            <li t-if="company.is_company_details_empty">
+                                <span t-field="company.partner_id" t-options="{&quot;widget&quot;: &quot;contact&quot;, &quot;fields&quot;: [&quot;address&quot;, &quot;name&quot;], &quot;no_marker&quot;: true}">
+                                    <div class="bg-light border-1 rounded h-100 d-flex flex-column align-items-center justify-content-center p-3 w-100 opacity-75 text-muted text-center">
+                                        <strong>Company address block</strong>
+                                        <div>Contains the company address.</div>
+                                    </div>
+                                </span>
+                            </li>
+                            <li t-else="">
+                                <span t-field="company.company_details">
+                                    <div class="bg-light border-1 rounded h-100 d-flex flex-column align-items-center justify-content-center p-3 w-100 opacity-75 text-muted text-center">
+                                        <strong>Company details block</strong>
+                                        <div>Contains the company details.</div>
+                                    </div>
+                                </span>
+                            </li>
+                            <li t-if="not forced_vat"/>
+                            <li t-else="">
+                                <t t-esc="company.country_id.vat_label or 'Tax ID'">Tax ID</t>:
+                                <span t-esc="forced_vat">US12345671</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+    
+            <!-- Cuerpo del Informe -->
+            <div t-attf-class="article o_report_layout_standard o_company_#{company.id}_layout {{  'o_report_layout_background' if company.layout_background in ['Geometric', 'Custom']  else  '' }}" t-attf-style="background-image: url({{ 'data:image/png;base64,%s' % company.layout_background_image.decode('utf-8') if company.layout_background_image and company.layout_background == 'Custom' else '/base/static/img/bg_background_template.jpg' if company.layout_background == 'Geometric' else ''}});">
+                <div class="pt-4">
+                    <!-- Este div asegura que la dirección no se recorte por el encabezado. -->
+                    <t t-call="web.address_layout"/>
+                </div>
+                <t t-out="0"/>
+            </div>
+    
+            
+        </div>
+    </template>
+    
+    <template id="custom_layout_report">
+         <t t-if="not o" t-set="o" t-value="doc"/>
+
+        <t t-if="not company">
+            <!-- Multicompany -->
+            <t t-if="company_id">
+                <t t-set="company" t-value="company_id"/>
+            </t>
+            <t t-elif="o and 'company_id' in o and o.company_id.sudo()">
+                <t t-set="company" t-value="o.company_id.sudo()"/>
+            </t>
+            <t t-else="else">
+                <t t-set="company" t-value="res_company"/>
+            </t>
+        </t>
+        <t t-call="l10n_ar_asientos_de_cierre.custom_standard_layout"><t t-out="0"/></t>
+    </template>
+    
     <template id="report_final_document">
-           <t t-call="__export__.ir_ui_view_4512_c4bf8e95">
+          <style>
+                .table-container {
+                    page-break-inside: auto; /* Permite dividir naturalmente */
+                    margin-bottom: 10mm;
+                }
+                
+                .table thead tr {
+                    display: table-row; /* Fuerza comportamiento correcto */
+                }
+                
+                .table tbody tr {
+                    page-break-inside: avoid; /* Evita dividir filas */
+                    page-break-after: auto;
+                }
+                
+                /* Estilo para encabezados de sección */
+                .section-header {
+                    page-break-after: avoid;
+                    margin-top: 5mm;
+                    font-weight: bold;
+                }
+            </style>
+            <t t-call="l10n_ar_asientos_de_cierre.custom_layout_report">
+            <t t-set="moves" t-value="env['account.move'].browse(item_ids).sorted(key=lambda m: (m.date, m.id))"/>
 
             <div class="row">
                         <div class="col-6">
@@ -13,19 +125,28 @@
             </div>
                 
             <!-- Body -->
-            <t t-set="index" t-value="0"/>
-            <t t-foreach="docs" t-as="o">
+            <t t-set="index" t-value="start_number-1 or 1"/>
+            <t t-foreach="moves" t-as="o">
                 <t t-set="index" t-value="index + 1"/>
                 <div class="container mt-0">
-                    <div class="row">
-                        <div class="col-6">
+                    <div class="mb-0 mt-4">
+                        <table class="table mb-0 mt-4">
+                            <thead style="background-color:#e3e3e4 !important;margin-bottom:0 !important;margin-top:20px !important;">
+                                <tr>
+                                    <small><th t-esc="str(index) +'-'+o.name" class="text-start text-truncate" style="max-width: 220px !important;font-size:14px !important;width:220px !important">Asiento
+                                    <p t-field="o.date"/>
+                                    </th></small>
+                                    <small><th t-field="o.date" class="text-start text-truncate" style="max-width: 20px !important;font-size:14px !important;">Asiento</th></small>
+                                     <small><th t-esc="o.ref" class="text-start text-truncate" style="max-width: 100px !important;font-size:14px !important;">
+                                                -
+                                    </th></small>
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                    <div class="row mt-0">
+                        <div class="col-6 mt-0">
                             <table class="table unified-table">
-                                <thead style="background-color:#e3e3e4 !important;">
-                                    <tr>
-                                        <small><th colspan="1" t-esc="str(index) +'-'+o.name" class="text-start text-truncate" style="max-width: 100px !important;font-size:14px !important;">Asiento</th></small>
-                                        <small><th colspan="1" t-field="o.date" class="text-end text-truncate" style="max-width: 100px !important;font-size:14px !important;">Asiento</th></small>
-                                    </tr>
-                                </thead>
                                 <tbody>
                                     <t t-set="total_debit" t-value="0"/>
                                     <t t-foreach="o.line_ids" t-as="line">
@@ -59,13 +180,6 @@
                         <!-- Right column for credit entries -->
                         <div class="col-6">
                             <table class="table">
-                                <thead style="background-color:#e3e3e4 !important;">
-                                    <tr>
-                                        <small><th colspan="2" t-esc="o.ref" class="text-start text-truncate" style="max-width: 100px !important;font-size:14px !important;">
-                                            -
-                                        </th></small>
-                                    </tr>
-                                </thead>
                                 <tbody>
                                     <t t-set="total_credit" t-value="0"/>
                                     <t t-foreach="o.line_ids" t-as="line">
@@ -105,19 +219,20 @@
 
     <template id="report_final">
         <t t-call="web.html_container">
-            <t t-call="tax_custom_reports.report_final_document" t-t-set="docs" t-value="docs"/>
+            <t t-call="l10n_ar_asientos_de_cierre.report_final_document"/>
         </t>
     </template>
 
     <!-- Acción para generar el reporte -->
     <record id="action_report_reporte" model="ir.actions.report">
-        <field name="name">Reporte final</field>
+        <field name="name">Reporte Libro Diario</field>
         <field name="model">account.move</field>
         <field name="binding_model_id" ref="account.model_account_move"/>
         <field name="report_type">qweb-pdf</field>
-        <field name="print_report_name">'Reporte final'</field>
-        <field name="report_name">tax_custom_reports.report_final</field>
-        <field name="report_file">tax_custom_reports.report_final</field>
+        <field name="print_report_name">'Libro Diario del %s al %s' % (object.date_from, object.date_to)</field>
+        <field name="report_name">l10n_ar_asientos_de_cierre.report_final</field>
+        <field name="report_file">l10n_ar_asientos_de_cierre.report_final</field>
+        <field name="binding_view_types">list,form</field>
     </record>
     
 

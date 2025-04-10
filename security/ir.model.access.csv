@@ -5,3 +5,4 @@ access_final_line_user,final.line.user,model_final_generator_line,base.group_use
 access_final_line_manager,final.line.manager,model_final_generator_line,base.group_erp_manager,1,1,1,1
 access_final_line_accountant,final.line.accountant,model_final_generator_line,account.group_account_user,1,1,1,0
 access_final_line_account_manager,final.line.account.manager,model_final_generator_line,account.group_account_manager,1,1,1,1
+access_final_libro_diario,final.libro_diario.access,model_final_libro_diario,account.group_account_user,1,1,1,1
