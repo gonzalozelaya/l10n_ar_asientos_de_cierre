@@ -89,7 +89,8 @@ class AsientoFinal(models.Model):
         total_credit = 0.0
     
         for account in accounts:
-            balance = self.get_yearly_balance(account)
+            balance_data = self.get_yearly_balance(account)
+            balance = balance_data['balance']
             if balance:
                 first_digit = account.code[0]
                 line_type = False
@@ -98,6 +99,7 @@ class AsientoFinal(models.Model):
                     line_type = 'patrimonial'
                 elif first_digit in ('4', '5'):
                     line_type = 'refundicion'
+                    
                 if line_type:
                     debit = -balance if balance < 0 else 0.0
                     credit = balance if balance > 0 else 0.0
@@ -108,6 +110,8 @@ class AsientoFinal(models.Model):
                         'debit': debit,
                         'credit': credit,
                         'balance': balance,
+                        'amount_currency': balance_data['amount_currency'],
+                        'currency_id': account.currency_id.id,
                         'final_id': self.id,
                     }))
                     total_debit += debit
@@ -125,9 +129,10 @@ class AsientoFinal(models.Model):
         
         # Definir fechas: desde el primer día del año hasta el último día del año
         date_start = f'{self.year}-01-01'
-        date_end = self.date  # o podrías usar f'{year}-12-31' si quieres todo el año
+        date_end = self.date
         
-        query = """
+        # Primero calculamos el balance como lo hacíamos originalmente
+        balance_query = """
             SELECT SUM(debit - credit) FROM account_move_line aml
             JOIN account_move am ON aml.move_id = am.id
             WHERE aml.account_id = %s 
@@ -135,9 +140,32 @@ class AsientoFinal(models.Model):
               AND aml.date <= %s 
               AND am.state = 'posted'
         """
-        self.env.cr.execute(query, (account.id, date_start, date_end))
-        result = self.env.cr.fetchone()
-        return result[0] if result and result[0] else 0.0
+        self.env.cr.execute(balance_query, (account.id, date_start, date_end))
+        balance_result = self.env.cr.fetchone()
+        balance = balance_result[0] if balance_result and balance_result[0] else 0.0
+        
+        # Luego obtenemos la información de moneda si es necesario
+        currency_query = """
+            SELECT 
+                SUM(amount_currency) as amount_currency,
+                aml.currency_id
+            FROM account_move_line aml
+            JOIN account_move am ON aml.move_id = am.id
+            WHERE aml.account_id = %s 
+              AND aml.date >= %s 
+              AND aml.date <= %s 
+              AND am.state = 'posted'
+            GROUP BY aml.currency_id
+            LIMIT 1
+        """
+        self.env.cr.execute(currency_query, (account.id, date_start, date_end))
+        currency_result = self.env.cr.fetchone()
+        
+        return {
+            'balance': balance,
+            'amount_currency': currency_result[0] if currency_result else 0.0,
+            'currency_id': currency_result[1] if currency_result else False
+        }
 
     def generar_asientos(self):
         self.ensure_one()
@@ -210,10 +238,11 @@ class AsientoFinal(models.Model):
         _logger.info("Terminado refundicion")
        
         self.total_refundicion = sum(self.refundicion_line_ids.mapped('balance'))
+        self.action_create_move()
         
         return {
             'type': 'ir.actions.client',
-            'tag': 'display_notification',
+            'tag': 'reload',
             'params': {
                 'title': 'Asientos generados',
                 'message': 'Los asientos contables se han generado correctamente.',
@@ -222,7 +251,7 @@ class AsientoFinal(models.Model):
         }
 
     def generar_patrimonial(self):
-        self.verify_transactions()
+        #self.verify_transactions()
         if self.patrimonial:
             self.patrimonial.button_draft()
             self.patrimonial.unlink()
@@ -234,9 +263,12 @@ class AsientoFinal(models.Model):
             total_credito = 0
             
             for linea in self.patrimonial_line_ids:
+                amount_currency = linea
                 lineas_patrimonial.append((0, 0, {
                     'account_id': linea.account_id.id,
                     'name': f"Cierre patrimonial {self.year}",
+                    'currency_id':linea.account_id.currency_id.id if linea.account_id.currency_id.id else linea.company_currency_id.id,
+                    'amount_currency':-1* linea.amount_currency if linea.account_id.currency_id.id == linea.company_currency_id.id else -1* linea.balance,
                     'debit': linea.debit,
                     'credit': linea.credit,
                 }))
@@ -253,9 +285,37 @@ class AsientoFinal(models.Model):
             })
             asiento_patrimonial.action_post()
             self.patrimonial = asiento_patrimonial
-        return
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'reload',
+            'params': {
+                'title': 'Asientos generados',
+                'message': 'Los asientos contables se han generado correctamente.',
+                'sticky': False,
+            }
+        }
 
 
+    def verify_balance_query(self, account):
+        """Obtiene el saldo de la cuenta para un año específico"""
+        self.ensure_one()
+        
+        # Definir fechas: desde el primer día del año hasta el último día del año
+        date_start = f'{self.year}-01-01'
+        date_end = self.date  # o podrías usar f'{year}-12-31' si quieres todo el año
+        
+        query = """
+            SELECT SUM(debit - credit) FROM account_move_line aml
+            JOIN account_move am ON aml.move_id = am.id
+            WHERE aml.account_id = %s 
+              AND aml.date >= %s 
+              AND aml.date <= %s 
+              AND am.state = 'posted'
+        """
+        self.env.cr.execute(query, (account.id, date_start, date_end))
+        result = self.env.cr.fetchone()
+        return result[0] if result and result[0] else 0.0
+        
     def verify_transactions(self):
         """Busca todas las cuentas con el group_id específico"""
         self.ensure_one()
@@ -265,7 +325,7 @@ class AsientoFinal(models.Model):
             ('group_id', 'in', [58])  # Busca por el ID 58 (el nombre "6 Cuentas Puentes" es solo visual)
         ])
         for account in accounts:
-            balance = self.get_yearly_balance(account)
+            balance = self.verify_balance_query(account)
             if balance != 0:
                 raise UserError(f"Se encontró un balance no saldado en la cuenta {account.name}({account.code})")
         return 
@@ -280,10 +340,19 @@ class LineasDeAsiento(models.Model):
         default=lambda self: self.env.company.currency_id.id,
         help="Moneda de la compañía"
     )
+    
+    currency_id = fields.Many2one(
+        'res.currency', 
+        string='Moneda', 
+        readonly=True,
+        help="Moneda"
+    )
+
     account_id = fields.Many2one('account.account',string='Cuenta', ondelete='set null',readonly=True)
-    debit = fields.Float('Débito')
+    debit = fields.Float('Débito',currency ='company_currency_id')
     credit = fields.Float('Crédito')
     balance = fields.Float('Balance')
+    amount_currency = fields.Float('Monto en divisa')
     type = fields.Selection([('refundicion','Refundición'),('patrimonial','Patrimonial')])
     final_id = fields.Many2one('final.generator',string='Asiento Final')
     
